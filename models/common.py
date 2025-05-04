@@ -56,6 +56,18 @@ from utils.general import (
 )
 from utils.torch_utils import copy_attr, smart_inference_mode
 
+try:
+    from ..export import export_formats
+except:
+    try:
+        from export import export_formats
+    except ImportError:
+        def export_formats():
+            class Formats:
+                def __init__(self):
+                    self.Suffix = ['.pt', '.torchscript', '.onnx', '_openvino_model', '.engine', '.mlmodel', '_saved_model', '.pb', '.tflite']
+            return Formats()
+
 
 def autopad(k, p=None, d=1):
     """
@@ -577,7 +589,7 @@ class DetectMultiBackend(nn.Module):
                 gd.ParseFromString(f.read())
             frozen_func = wrap_frozen_graph(gd, inputs="x:0", outputs=gd_outputs(gd))
         elif tflite or edgetpu:  # https://www.tensorflow.org/lite/guide/python#install_tensorflow_lite_for_python
-            try:  # https://coral.ai/docs/edgetpu/tflite-python/#update-existing-tf-lite-code-for-the-edge-tpu
+            try:  # https://coral.ai/docs/edgetpu/tflite-python/#update_existing_tf_lite_code_for_the_edge_tpu
                 from tflite_runtime.interpreter import Interpreter, load_delegate
             except ImportError:
                 import tensorflow as tf

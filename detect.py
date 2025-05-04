@@ -8,6 +8,12 @@ import os
 import platform
 import sys
 from pathlib import Path
+import json
+import datetime
+from collections import deque
+import signal
+import atexit
+from contextlib import contextmanager
 
 import torch
 
@@ -18,10 +24,12 @@ if str(ROOT) not in sys.path:
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 from models.common import DetectMultiBackend
-from utils.dataloaders import LoadStreams
+from utils.dataloaders import IMG_FORMATS, VID_FORMATS, LoadImages, LoadScreenshots, LoadStreams
 from utils.general import (
     LOGGER,
     Profile,
+    check_file,
+    check_img_size,
     check_imshow,
     check_requirements,
     colorstr,
@@ -30,10 +38,69 @@ from utils.general import (
     non_max_suppression,
     print_args,
     scale_boxes,
+    strip_optimizer,
     xyxy2xywh,
 )
+from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, smart_inference_mode
-from utils.plots import Annotator, colors
+
+# Constants for video logging
+LOGS_DIR = Path("logs")  # Directory for storing detection videos and metadata
+BUFFER_SECONDS = 30  # Number of seconds to buffer before detection
+POST_DETECTION_SECONDS = 15  # Number of seconds to record after detection
+RECORDING_EXTENSION = 15  # Additional seconds to record if drone remains in frame
+
+# Add new global variables for tracking recording state
+is_recording = False
+recording_start_time = None
+current_video_writer = None
+current_video_path = None
+frames_to_record = 0
+
+@contextmanager
+def safe_video_writer():
+    """Context manager to safely handle video writing and cleanup."""
+    global current_video_writer, is_recording
+    try:
+        yield
+    finally:
+        if current_video_writer is not None:
+            try:
+                current_video_writer.release()
+                LOGGER.info(f"Successfully saved video to {current_video_path}")
+            except Exception as e:
+                LOGGER.error(f"Error while saving video: {e}")
+            finally:
+                current_video_writer = None
+                is_recording = False
+
+def cleanup_video_writer():
+    """Cleanup function to be called on exit."""
+    global current_video_writer, is_recording
+    if current_video_writer is not None:
+        try:
+            current_video_writer.release()
+            LOGGER.info(f"Successfully saved video to {current_video_path}")
+        except Exception as e:
+            LOGGER.error(f"Error while saving video: {e}")
+        finally:
+            current_video_writer = None
+            is_recording = False
+
+def signal_handler(signum, frame):
+    """Handle termination signals."""
+    LOGGER.info(f"Received signal {signum}. Cleaning up...")
+    cleanup_video_writer()
+    sys.exit(0)
+
+# Register signal handlers
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+if platform.system() != 'Windows':
+    signal.signal(signal.SIGQUIT, signal_handler)
+
+# Register cleanup function
+atexit.register(cleanup_video_writer)
 
 @smart_inference_mode()
 def run(
@@ -65,128 +132,218 @@ def run(
     dnn=False,  # use OpenCV DNN for ONNX inference
     vid_stride=1,  # video frame-rate stride
 ):
-    source = str(source)
-    save_img = not nosave and not source.endswith(".txt")  # save inference images
-    webcam = source.isnumeric() or source.endswith(".streams")
+    global is_recording, recording_start_time, current_video_writer, current_video_path, frames_to_record
+    
+    with safe_video_writer():
+        source = str(source)
+        save_img = not nosave and not source.endswith(".txt")  # save inference images
+        webcam = source.isnumeric() or source.endswith(".streams")
 
-    # Directories
-    save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
-    (save_dir / "labels" if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
+        # Create logs directory
+        LOGS_DIR.mkdir(exist_ok=True)
 
-    # Load model
-    device = select_device(device)
-    model = DetectMultiBackend(weights, device=device, dnn=dnn, data=data, fp16=half)
-    stride, names, pt = model.stride, model.names, model.pt
-    imgsz = check_imgsz(imgsz, s=stride)  # check image size
+        # Directories
+        save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
+        (save_dir / "labels" if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
 
-    # Dataloader
-    bs = 1  # batch_size
-    if webcam:
-        view_img = check_imshow(warn=True)
-        dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
-        bs = len(dataset)
-    vid_path, vid_writer = [None] * bs, [None] * bs
+        # Load model
+        device = select_device(device)
+        model = DetectMultiBackend(weights, device=device, dnn=dnn, data=data, fp16=half)
+        stride, names, pt = model.stride, model.names, model.pt
+        imgsz = check_img_size(imgsz, s=stride)  # check image size
 
-    # Run inference
-    model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
-    seen, windows, dt = 0, [], (Profile(), Profile(), Profile())
-    for path, im, im0s, vid_cap, s in dataset:
-        with dt[0]:
-            im = torch.from_numpy(im).to(model.device)
-            im = im.half() if model.fp16 else im.float()  # uint8 to fp16/32
-            im /= 255  # 0 - 255 to 0.0 - 1.0
-            if len(im.shape) == 3:
-                im = im[None]  # expand for batch dim
+        # Dataloader
+        bs = 1  # batch_size
+        if webcam:
+            view_img = check_imshow(warn=True)
+            dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
+            bs = len(dataset)
+        vid_path, vid_writer = [None] * bs, [None] * bs
 
-        # Inference
-        with dt[1]:
-            visualize = increment_path(save_dir / Path(path).stem, mkdir=True) if visualize else False
-            pred = model(im, augment=augment, visualize=visualize)
+        # Initialize frame buffer for each stream
+        frame_buffers = [deque(maxlen=BUFFER_SECONDS * 30) for _ in range(bs)]  # Assuming 30 FPS
 
-        # NMS
-        with dt[2]:
-            pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
+        # Run inference
+        model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
+        seen, windows, dt = 0, [], (Profile(), Profile(), Profile())
+        
+        try:
+            for path, im, im0s, vid_cap, s in dataset:
+                with dt[0]:
+                    im = torch.from_numpy(im).to(model.device)
+                    im = im.half() if model.fp16 else im.float()  # uint8 to fp16/32
+                    im /= 255  # 0 - 255 to 0.0 - 1.0
+                    if len(im.shape) == 3:
+                        im = im[None]  # expand for batch dim
 
-        # Process predictions
-        for i, det in enumerate(pred):  # per image
-            seen += 1
-            if webcam:  # batch_size >= 1
-                p, im0, frame = path[i], im0s[i].copy(), dataset.count
-                s += f"{i}: "
-            else:
-                p, im0, frame = path, im0s.copy(), getattr(dataset, "frame", 0)
+                # Inference
+                with dt[1]:
+                    visualize = increment_path(save_dir / Path(path).stem, mkdir=True) if visualize else False
+                    pred = model(im, augment=augment, visualize=visualize)
 
-            p = Path(p)  # to Path
-            save_path = str(save_dir / p.name)  # im.jpg
-            txt_path = str(save_dir / "labels" / p.stem) + ("" if dataset.mode == "image" else f"_{frame}")  # im.txt
-            s += "%gx%g " % im.shape[2:]  # print string
-            gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
-            imc = im0.copy() if save_crop else im0  # for save_crop
-            annotator = Annotator(im0, line_width=line_thickness, example=str(names))
-            if len(det):
-                # Rescale boxes from img_size to im0 size
-                det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()
+                # NMS
+                with dt[2]:
+                    pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
 
-                # Print results
-                for c in det[:, 5].unique():
-                    n = (det[:, 5] == c).sum()  # detections per class
-                    s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
+                # Process predictions
+                for i, det in enumerate(pred):  # per image
+                    seen += 1
+                    if webcam:  # batch_size >= 1
+                        p, im0, frame = path[i], im0s[i].copy(), dataset.count
+                        s += f"{i}: "
+                    else:
+                        p, im0, frame = path, im0s.copy(), getattr(dataset, "frame", 0)
 
-                # Write results
-                for *xyxy, conf, cls in reversed(det):
-                    if save_txt:  # Write to file
-                        xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
-                        line = (cls, *xywh, conf) if save_conf else (cls, *xywh)  # label format
-                        with open(f"{txt_path}.txt", "a") as f:
-                            f.write(("%g " * len(line)).rstrip() % line + "\n")
+                    # Add frame to buffer
+                    frame_buffers[i].append((im0.copy(), datetime.datetime.now()))
 
-                    if save_img or save_crop or view_img:  # Add bbox to image
-                        c = int(cls)  # integer class
-                        label = None if hide_labels else (names[c] if hide_conf else f"{names[c]} {conf:.2f}")
-                        annotator.box_label(xyxy, label, color=colors(c, True))
-                    if save_crop:
-                        save_one_box(xyxy, imc, file=save_dir / "crops" / names[c] / f"{p.stem}.jpg", BGR=True)
+                    p = Path(p)  # to Path
+                    save_path = str(save_dir / p.name)  # im.jpg
+                    txt_path = str(save_dir / "labels" / p.stem) + ("" if dataset.mode == "image" else f"_{frame}")  # im.txt
+                    s += "%gx%g " % im.shape[2:]  # print string
+                    gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
+                    imc = im0.copy() if save_crop else im0  # for save_crop
+                    annotator = Annotator(im0, line_width=line_thickness, example=str(names))
+                    
+                    # Check if drone is detected
+                    drone_detected = len(det) > 0
+                    
+                    if drone_detected:
+                        # Get detection info
+                        timestamp = datetime.datetime.now().isoformat()
+                        drone_count = len(det)
+                        max_conf = float(det[:, 4].max())
+                        
+                        # Determine threat level based on confidence
+                        threat_level = "High" if max_conf > 0.8 else "Medium" if max_conf > 0.5 else "Low"
+                        
+                        # Get drone type (assuming single class for now)
+                        drone_type = names[int(det[0, 5])] if len(det) > 0 else "Unknown"
+                        
+                        # Get location (you can modify this based on your needs)
+                        location = "Unknown"  # You can add logic to determine location
 
-            # Stream results
-            im0 = annotator.result()
-            if view_img:
-                if platform.system() == "Linux" and p not in windows:
-                    windows.append(p)
-                    cv2.namedWindow(str(p), cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)  # allow window resize (Linux)
-                    cv2.resizeWindow(str(p), im0.shape[1], im0.shape[0])
-                cv2.imshow(str(p), im0)
-                cv2.waitKey(1)  # 1 millisecond
+                        # Start or extend recording if not already recording
+                        if not is_recording:
+                            # Create video filename
+                            safe_time = timestamp.replace(":", "-").replace(".", "-")
+                            video_filename = f"drone_detection_{safe_time}_{drone_type}_{threat_level}.mp4"
+                            current_video_path = LOGS_DIR / video_filename
 
-            # Save results (image with detections)
-            if save_img:
-                if dataset.mode == "image":
-                    cv2.imwrite(save_path, im0)
-                else:  # 'video' or 'stream'
-                    if vid_path[i] != save_path:  # new video
-                        vid_path[i] = save_path
-                        if isinstance(vid_writer[i], cv2.VideoWriter):
-                            vid_writer[i].release()  # release previous video writer
-                        if vid_cap:  # video
-                            fps = vid_cap.get(cv2.CAP_PROP_FPS)
-                            w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                            h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        else:  # stream
-                            fps, w, h = 30, im0.shape[1], im0.shape[0]
-                        save_path = str(Path(save_path).with_suffix(".mp4"))  # force *.mp4 suffix on results videos
-                        vid_writer[i] = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
-                    vid_writer[i].write(im0)
+                            # Initialize video writer
+                            fps = vid_cap.get(cv2.CAP_PROP_FPS) if vid_cap else 30
+                            w, h = im0.shape[1], im0.shape[0]
+                            current_video_writer = cv2.VideoWriter(str(current_video_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+                            
+                            # Write buffered frames
+                            for frame, _ in frame_buffers[i]:
+                                current_video_writer.write(frame)
+                            
+                            is_recording = True
+                            recording_start_time = datetime.datetime.now()
+                            frames_to_record = POST_DETECTION_SECONDS * int(fps)
 
-        # Print time (inference-only)
-        LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1E3:.1f}ms")
+                            # Write metadata
+                            meta = {
+                                "timestamp": timestamp,
+                                "droneType": drone_type,
+                                "confidence": float(max_conf),
+                                "location": location,
+                                "threatLevel": threat_level,
+                                "droneCount": int(drone_count),
+                                "coordinates": det[:, :4].tolist()  # Store all detection coordinates
+                            }
+                            
+                            meta_filename = video_filename.replace(".mp4", ".meta")
+                            with open(LOGS_DIR / meta_filename, "w") as f:
+                                json.dump(meta, f)
+                        else:
+                            # Extend recording if drone is still detected
+                            frames_to_record = RECORDING_EXTENSION * int(fps)
 
-    # Print results
-    t = tuple(x.t / seen * 1E3 for x in dt)  # speeds per image
-    LOGGER.info(f"Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS per image at shape {(1, 3, *imgsz)}" % t)
-    if save_txt or save_img:
-        s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if save_txt else ""
-        LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}{s}")
-    if update:
-        strip_optimizer(weights[0])  # update model (to fix SourceChangeWarning)
+                    # Write frame if recording
+                    if is_recording and current_video_writer is not None:
+                        current_video_writer.write(im0)
+                        frames_to_record -= 1
+                        
+                        # Check if recording should end
+                        if frames_to_record <= 0:
+                            current_video_writer.release()
+                            is_recording = False
+                            current_video_writer = None
+                            current_video_path = None
+
+                    # Print results
+                    if len(det):
+                        for c in det[:, 5].unique():
+                            n = (det[:, 5] == c).sum()  # detections per class
+                            s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
+
+                        # Write results
+                        for *xyxy, conf, cls in reversed(det):
+                            if save_txt:  # Write to file
+                                xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
+                                line = (cls, *xywh, conf) if save_conf else (cls, *xywh)  # label format
+                                with open(f"{txt_path}.txt", "a") as f:
+                                    f.write(("%g " * len(line)).rstrip() % line + "\n")
+
+                            if save_img or save_crop or view_img:  # Add bbox to image
+                                c = int(cls)  # integer class
+                                label = None if hide_labels else (names[c] if hide_conf else f"{names[c]} {conf:.2f}")
+                                annotator.box_label(xyxy, label, color=colors(c, True))
+                            if save_crop:
+                                save_one_box(xyxy, imc, file=save_dir / "crops" / names[c] / f"{p.stem}.jpg", BGR=True)
+
+                    # Stream results
+                    im0 = annotator.result()
+                    if view_img:
+                        if platform.system() == "Linux" and p not in windows:
+                            windows.append(p)
+                            cv2.namedWindow(str(p), cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)  # allow window resize (Linux)
+                            cv2.resizeWindow(str(p), im0.shape[1], im0.shape[0])
+                        cv2.imshow(str(p), im0)
+                        cv2.waitKey(1)  # 1 millisecond
+
+                    # Save results (image with detections)
+                    if save_img:
+                        if dataset.mode == "image":
+                            cv2.imwrite(save_path, im0)
+                        else:  # 'video' or 'stream'
+                            if vid_path[i] != save_path:  # new video
+                                vid_path[i] = save_path
+                                if isinstance(vid_writer[i], cv2.VideoWriter):
+                                    vid_writer[i].release()  # release previous video writer
+                                if vid_cap:  # video
+                                    fps = vid_cap.get(cv2.CAP_PROP_FPS)
+                                    w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                                    h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                                else:  # stream
+                                    fps, w, h = 30, im0.shape[1], im0.shape[0]
+                                save_path = str(Path(save_path).with_suffix(".mp4"))  # force *.mp4 suffix on results videos
+                                vid_writer[i] = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+                            vid_writer[i].write(im0)
+
+                # Print time (inference-only)
+                LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1E3:.1f}ms")
+
+        except KeyboardInterrupt:
+            LOGGER.info("Keyboard interrupt received. Cleaning up...")
+        except Exception as e:
+            LOGGER.error(f"Error during execution: {e}")
+        finally:
+            # Clean up video writers
+            for writer in vid_writer:
+                if writer is not None:
+                    writer.release()
+
+        # Print results
+        t = tuple(x.t / seen * 1E3 for x in dt)  # speeds per image
+        LOGGER.info(f"Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS per image at shape {(1, 3, *imgsz)}" % t)
+        if save_txt or save_img:
+            s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if save_txt else ""
+            LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}{s}")
+        if update:
+            strip_optimizer(weights[0])  # update model (to fix SourceChangeWarning)
 
 def parse_opt():
     parser = argparse.ArgumentParser()

@@ -1,10 +1,76 @@
 import { Suspense } from "react"
 import DroneDetectionDashboard from "@/components/drone-detection-dashboard"
-import { Loader2, ChevronLeft, Shield } from "lucide-react"
+import { Loader2, ChevronLeft, Shield, Video, AlertTriangle } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { formatDistanceToNow } from "date-fns"
+import fs from 'fs'
+import path from 'path'
+
+interface RecordingMetadata {
+  timestamp: string;
+  droneType: string;
+  confidence: number;
+  location: string;
+  threatLevel: string;
+  droneCount: number;
+  coordinates: number[][];
+}
+
+interface Recording {
+  id: string;
+  filename: string;
+  timestamp: string;
+  metadata: RecordingMetadata | null;
+  url: string;
+}
+
+function getRecordings(): Recording[] {
+  try {
+    // Use the absolute path to the logs directory
+    const logsDir = 'C:\\Projects\\Drone Detection System\\logs';
+    console.log('Reading from logs directory:', logsDir);
+    
+    const files = fs.readdirSync(logsDir);
+    console.log('Found files:', files);
+    
+    return files
+      .filter(file => file.endsWith('.mp4'))
+      .map(videoFile => {
+        const metaFile = videoFile.replace('.mp4', '.meta');
+        const metaPath = path.join(logsDir, metaFile);
+        
+        let metadata = null;
+        if (fs.existsSync(metaPath)) {
+          try {
+            metadata = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+          } catch (error) {
+            console.error(`Error reading metadata for ${metaFile}:`, error);
+          }
+        }
+
+        // Extract timestamp from filename
+        const timestamp = videoFile.split('_')[2].replace('.mp4', '');
+        
+        return {
+          id: videoFile,
+          filename: videoFile,
+          timestamp: timestamp,
+          metadata: metadata,
+          url: `/api/recordings/video/${encodeURIComponent(videoFile)}`,
+        };
+      })
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  } catch (error) {
+    console.error('Error reading recordings:', error);
+    return [];
+  }
+}
 
 export default function DashboardPage() {
+  const recordings = getRecordings();
+
   return (
     <main className="min-h-screen bg-zinc-950 text-white relative overflow-hidden">
       {/* Animated background grid */}
@@ -53,6 +119,50 @@ export default function DashboardPage() {
               <span className="text-sm text-zinc-300">System Active</span>
             </div>
           </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+          {recordings.map((recording) => (
+            <Card key={recording.id} className="bg-zinc-900/80 backdrop-blur-sm border-zinc-800 overflow-hidden">
+              <div className="aspect-video relative bg-zinc-950">
+                <video
+                  src={recording.url}
+                  className="w-full h-full object-cover"
+                  controls
+                  preload="metadata"
+                />
+                <div className="absolute top-2 right-2">
+                  {recording.metadata?.threatLevel === 'High' && (
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-red-500/20 text-red-400 text-xs">
+                      <AlertTriangle className="h-3 w-3" />
+                      High Threat
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Video className="h-4 w-4 text-zinc-400" />
+                    <span className="text-sm text-zinc-400">
+                      {formatDistanceToNow(new Date(recording.timestamp.replace(/-/g, ':')), { addSuffix: true })}
+                    </span>
+                  </div>
+                  {recording.metadata && recording.metadata.droneCount > 1 && (
+                    <span className="text-sm text-zinc-400">
+                      {recording.metadata.droneCount} drones detected
+                    </span>
+                  )}
+                </div>
+                {recording.metadata && (
+                  <div className="space-y-1 text-sm text-zinc-400">
+                    <p>Confidence: {(recording.metadata.confidence * 100).toFixed(1)}%</p>
+                    <p>Type: {recording.metadata.droneType}</p>
+                  </div>
+                )}
+              </div>
+            </Card>
+          ))}
         </div>
 
         <Suspense
