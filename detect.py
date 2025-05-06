@@ -47,8 +47,10 @@ from utils.torch_utils import select_device, smart_inference_mode
 # Constants for video logging
 LOGS_DIR = Path("logs")  # Directory for storing detection videos and metadata
 BUFFER_SECONDS = 30  # Number of seconds to buffer before detection
-POST_DETECTION_SECONDS = 15  # Number of seconds to record after detection
-RECORDING_EXTENSION = 15  # Additional seconds to record if drone remains in frame
+POST_DETECTION_SECONDS = 7  # Number of seconds to record after detection
+RECORDING_EXTENSION = 7  # Additional seconds to record if drone remains in frame
+MIN_CONFIDENCE_THRESHOLD = 0.5  # Minimum confidence threshold for drone detection
+EXTENSION_WINDOW = 2  # Number of seconds before timeout to check for extension
 
 # Add new global variables for tracking recording state
 is_recording = False
@@ -56,6 +58,20 @@ recording_start_time = None
 current_video_writer = None
 current_video_path = None
 frames_to_record = 0
+last_countdown_display = 0  # Track last countdown display time
+last_detection_time = None  # Track last drone detection time
+
+def display_countdown(remaining_seconds):
+    """Display countdown in terminal."""
+    global last_countdown_display
+    current_time = datetime.datetime.now()
+    if isinstance(last_countdown_display, datetime.datetime):
+        if (current_time - last_countdown_display).total_seconds() >= 1:  # Update every second
+            print(f"\rRecording remaining time: {remaining_seconds} seconds", end="", flush=True)
+            last_countdown_display = current_time
+    else:
+        last_countdown_display = current_time
+        print(f"\rRecording remaining time: {remaining_seconds} seconds", end="", flush=True)
 
 @contextmanager
 def safe_video_writer():
@@ -73,6 +89,7 @@ def safe_video_writer():
             finally:
                 current_video_writer = None
                 is_recording = False
+                print("\n")  # New line after countdown
 
 def cleanup_video_writer():
     """Cleanup function to be called on exit."""
@@ -101,6 +118,19 @@ if platform.system() != 'Windows':
 
 # Register cleanup function
 atexit.register(cleanup_video_writer)
+
+def should_extend_recording(frames_to_record, fps):
+    """Check if recording should be extended based on recent detections."""
+    global last_detection_time
+    if last_detection_time is None:
+        return False
+    
+    current_time = datetime.datetime.now()
+    seconds_since_last_detection = (current_time - last_detection_time).total_seconds()
+    remaining_seconds = frames_to_record / fps
+    
+    # Extend if drone was detected in the last EXTENSION_WINDOW seconds
+    return seconds_since_last_detection <= EXTENSION_WINDOW and remaining_seconds <= EXTENSION_WINDOW
 
 @smart_inference_mode()
 def run(
@@ -205,14 +235,20 @@ def run(
                     imc = im0.copy() if save_crop else im0  # for save_crop
                     annotator = Annotator(im0, line_width=line_thickness, example=str(names))
                     
-                    # Check if drone is detected
-                    drone_detected = len(det) > 0
+                    # Check if drone is detected with high confidence
+                    drone_detected = False
+                    max_conf = 0.0
+                    if len(det) > 0:
+                        max_conf = float(det[:, 4].max())
+                        drone_detected = max_conf > MIN_CONFIDENCE_THRESHOLD
                     
                     if drone_detected:
+                        # Update last detection time
+                        last_detection_time = datetime.datetime.now()
+                        
                         # Get detection info
                         timestamp = datetime.datetime.now().isoformat()
                         drone_count = len(det)
-                        max_conf = float(det[:, 4].max())
                         
                         # Determine threat level based on confidence
                         threat_level = "High" if max_conf > 0.8 else "Medium" if max_conf > 0.5 else "Low"
@@ -257,14 +293,21 @@ def run(
                             meta_filename = video_filename.replace(".mp4", ".meta")
                             with open(LOGS_DIR / meta_filename, "w") as f:
                                 json.dump(meta, f)
-                        else:
-                            # Extend recording if drone is still detected
-                            frames_to_record = RECORDING_EXTENSION * int(fps)
 
                     # Write frame if recording
                     if is_recording and current_video_writer is not None:
                         current_video_writer.write(im0)
                         frames_to_record -= 1
+                        
+                        # Calculate and display remaining time
+                        fps = vid_cap.get(cv2.CAP_PROP_FPS) if vid_cap else 30
+                        remaining_seconds = int(frames_to_record / fps)
+                        display_countdown(remaining_seconds)
+                        
+                        # Check if recording should be extended
+                        if should_extend_recording(frames_to_record, fps):
+                            frames_to_record = RECORDING_EXTENSION * int(fps)
+                            print(f"\nExtending recording by {RECORDING_EXTENSION} seconds due to recent detection")
                         
                         # Check if recording should end
                         if frames_to_record <= 0:
@@ -272,6 +315,8 @@ def run(
                             is_recording = False
                             current_video_writer = None
                             current_video_path = None
+                            last_detection_time = None
+                            print("\nRecording completed and saved successfully.")
 
                     # Print results
                     if len(det):
@@ -289,7 +334,17 @@ def run(
 
                             if save_img or save_crop or view_img:  # Add bbox to image
                                 c = int(cls)  # integer class
-                                label = None if hide_labels else (names[c] if hide_conf else f"{names[c]} {conf:.2f}")
+                                # Calculate center coordinates of the bounding box
+                                x1, y1, x2, y2 = map(int, xyxy)
+                                center_x = (x1 + x2) // 2
+                                center_y = (y1 + y2) // 2
+                                
+                                # Create label with class, confidence, and coordinates
+                                label = None if hide_labels else (
+                                    f"{names[c]} {conf:.2f} ({center_x}, {center_y})" 
+                                    if not hide_conf 
+                                    else f"{names[c]} ({center_x}, {center_y})"
+                                )
                                 annotator.box_label(xyxy, label, color=colors(c, True))
                             if save_crop:
                                 save_one_box(xyxy, imc, file=save_dir / "crops" / names[c] / f"{p.stem}.jpg", BGR=True)
