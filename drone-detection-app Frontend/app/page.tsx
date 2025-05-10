@@ -105,23 +105,63 @@ export default function HomePage() {
               Advanced real-time monitoring and detection system for unauthorized drone activity
             </motion.p>
 
-            <motion.div
-              variants={itemVariants}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="relative inline-block group"
-            >
-              <span className="absolute -inset-1 rounded-lg bg-gradient-to-r from-red-600 to-amber-600 opacity-0 group-hover:opacity-70 blur transition-all duration-300"></span>
-              <Link href="/dashboard" passHref>
-                <Button
-                  size="lg"
-                  className="relative bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white border-0 shadow-lg shadow-red-900/20"
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <motion.div
+                  variants={itemVariants}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="relative inline-block group"
                 >
-                  View Dashboard
-                  <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
-                </Button>
-              </Link>
-            </motion.div>
+                  <span className="absolute -inset-1 rounded-lg bg-gradient-to-r from-red-600 to-amber-600 opacity-0 group-hover:opacity-70 blur transition-all duration-300"></span>
+                  <Link href="/dashboard" passHref>
+                    <Button
+                      size="lg"
+                      className="relative bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white border-0 shadow-lg shadow-red-900/20"
+                    >
+                      View Dashboard
+                      <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
+                    </Button>
+                  </Link>
+                </motion.div>
+              
+              <motion.div
+                variants={itemVariants}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="relative inline-block group"
+              >
+                <span className="absolute -inset-1 rounded-lg bg-gradient-to-r from-red-600 to-amber-600 opacity-0 group-hover:opacity-70 blur transition-all duration-300"></span>
+                <Link href="/cctv" passHref>
+                  <Button
+                    size="lg"
+                    className="relative bg-gradient-to-r from-zinc-700 to-zinc-800 hover:from-zinc-600 hover:to-zinc-700 text-white border-0 shadow-lg shadow-zinc-900/20"
+                  >
+                    CCTV Footage
+                    <Video className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
+                  </Button>
+                </Link>
+              </motion.div>
+            </div>
+              
+              <motion.div
+                variants={itemVariants}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="relative inline-block group"
+              >
+                <span className="absolute -inset-1 rounded-lg bg-gradient-to-r from-red-600 to-amber-600 opacity-0 group-hover:opacity-70 blur transition-all duration-300"></span>
+                <Link href="/cctv" passHref>
+                  <Button
+                    size="lg"
+                    className="relative bg-gradient-to-r from-zinc-700 to-zinc-800 hover:from-zinc-600 hover:to-zinc-700 text-white border-0 shadow-lg shadow-zinc-900/20"
+                  >
+                    CCTV Footage
+                    <Video className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
+                  </Button>
+                </Link>
+              </motion.div>
+            </div>
           </motion.div>
         </div>
 
@@ -270,26 +310,49 @@ export default function HomePage() {
               Access the dashboard to view real-time drone detection logs and monitor your security status.
             </motion.p>
 
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.2 }}
-              viewport={{ once: true, margin: "-100px" }}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="relative inline-block group"
-            >
-              <span className="absolute -inset-1 rounded-lg bg-gradient-to-r from-red-600 to-amber-600 opacity-0 group-hover:opacity-70 blur transition-all duration-300"></span>
-              <Link href="/dashboard" passHref>
-                <Button
-                  size="lg"
-                  className="relative bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white border-0 shadow-lg shadow-red-900/20"
-                >
-                  Go to Dashboard
-                  <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
-                </Button>
-              </Link>
-            </motion.div>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.2 }}
+                viewport={{ once: true, margin: "-100px" }}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="relative inline-block group"
+              >
+                <span className="absolute -inset-1 rounded-lg bg-gradient-to-r from-red-600 to-amber-600 opacity-0 group-hover:opacity-70 blur transition-all duration-300"></span>
+                <Link href="/dashboard" passHref>
+                  <Button
+                    size="lg"
+                    className="relative bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white border-0 shadow-lg shadow-red-900/20"
+                  >
+                    Go to Dashboard
+                    <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
+                  </Button>
+                </Link>
+              </motion.div>
+              
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.3 }}
+                viewport={{ once: true, margin: "-100px" }}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="relative inline-block group"
+              >
+                <span className="absolute -inset-1 rounded-lg bg-gradient-to-r from-red-600 to-amber-600 opacity-0 group-hover:opacity-70 blur transition-all duration-300"></span>
+                <Link href="/cctv" passHref>
+                  <Button
+                    size="lg"
+                    className="relative bg-gradient-to-r from-zinc-700 to-zinc-800 hover:from-zinc-600 hover:to-zinc-700 text-white border-0 shadow-lg shadow-zinc-900/20"
+                  >
+                    View CCTV Footage
+                    <Video className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
+                  </Button>
+                </Link>
+              </motion.div>
+            </div>
           </div>
         </motion.div>
       </div>

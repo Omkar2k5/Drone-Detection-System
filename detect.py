@@ -14,6 +14,11 @@ from collections import deque
 import signal
 import atexit
 from contextlib import contextmanager
+import threading
+from flask import Flask, Response
+from flask_cors import CORS
+import time
+import numpy as np
 
 import torch
 
@@ -60,6 +65,51 @@ current_video_path = None
 frames_to_record = 0
 last_countdown_display = 0  # Track last countdown display time
 last_detection_time = None  # Track last drone detection time
+
+# Global variables for streaming
+latest_frame = None
+frame_lock = threading.Lock()
+
+# Flask app for streaming
+app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
+
+def generate_frames():
+    """Generate frames for MJPEG streaming."""
+    global latest_frame
+    while True:
+        with frame_lock:
+            if latest_frame is not None:
+                # Create a clean frame without bounding boxes for streaming
+                clean_frame = latest_frame.copy()
+                
+                # Encode the frame as JPEG
+                ret, buffer = cv2.imencode('.jpg', clean_frame)
+                if not ret:
+                    continue
+                
+                # Yield the frame in MJPEG format
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+            else:
+                # If no frame is available, yield a blank frame
+                blank_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                ret, buffer = cv2.imencode('.jpg', blank_frame)
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+        
+        # Control the frame rate of the stream
+        time.sleep(0.033)  # ~30 FPS
+
+@app.route('/video_feed')
+def video_feed():
+    """Route for video streaming."""
+    return Response(generate_frames(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+def start_flask_server():
+    """Start Flask server in a separate thread."""
+    app.run(host='0.0.0.0', port=8000, threaded=True)
 
 def display_countdown(remaining_seconds):
     """Display countdown in terminal."""
@@ -223,7 +273,11 @@ def run(
                         s += f"{i}: "
                     else:
                         p, im0, frame = path, im0s.copy(), getattr(dataset, "frame", 0)
-
+                    
+                    # Update the latest frame for streaming (before annotations)
+                    with frame_lock:
+                        latest_frame = im0.copy()
+                        
                     # Add frame to buffer
                     frame_buffers[i].append((im0.copy(), datetime.datetime.now()))
 
@@ -436,6 +490,13 @@ def parse_opt():
 
 def main(opt):
     check_requirements(ROOT / "requirements.txt", exclude=("tensorboard", "thop"))
+    
+    # Start Flask server in a separate thread
+    flask_thread = threading.Thread(target=start_flask_server, daemon=True)
+    flask_thread.start()
+    print(f"* Flask server started at http://localhost:8000/video_feed")
+    
+    # Run the detection
     run(**vars(opt))
 
 if __name__ == "__main__":

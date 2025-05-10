@@ -41,6 +41,8 @@ seaborn>=0.11.0
 # Deploy ----------------------------------------------------------------------
 setuptools>=65.5.1 # Snyk vulnerability fix
 # tritonclient[all]~=2.24.0
+Flask>=2.0.0
+Flask-CORS>=3.0.10
 
 # Extras ----------------------------------------------------------------------
 # ipython  # interactive notebook

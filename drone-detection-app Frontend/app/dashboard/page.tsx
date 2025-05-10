@@ -1,3 +1,5 @@
+"use client"
+
 import { Suspense } from "react"
 import DroneDetectionDashboard from "@/components/drone-detection-dashboard"
 import { Loader2, ChevronLeft, Shield, Video, AlertTriangle } from "lucide-react"
@@ -5,8 +7,6 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { formatDistanceToNow } from "date-fns"
-import fs from 'fs'
-import path from 'path'
 
 interface RecordingMetadata {
   timestamp: string;
@@ -27,45 +27,54 @@ interface Recording {
 }
 
 function getRecordings(): Recording[] {
-  try {
-    // Use the absolute path to the logs directory
-    const logsDir = 'C:\\Projects\\Drone Detection System\\logs';
-    console.log('Reading from logs directory:', logsDir);
-    
-    const files = fs.readdirSync(logsDir);
-    console.log('Found files:', files);
-    
-    return files
-      .filter(file => file.endsWith('.mp4'))
-      .map(videoFile => {
-        const metaFile = videoFile.replace('.mp4', '.meta');
-        const metaPath = path.join(logsDir, metaFile);
-        
-        let metadata = null;
-        if (fs.existsSync(metaPath)) {
-          try {
-            metadata = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-          } catch (error) {
-            console.error(`Error reading metadata for ${metaFile}:`, error);
-          }
-        }
-
-        // Extract timestamp from filename
-        const timestamp = videoFile.split('_')[2].replace('.mp4', '');
-        
-        return {
-          id: videoFile,
-          filename: videoFile,
-          timestamp: timestamp,
-          metadata: metadata,
-          url: `/api/recordings/video/${encodeURIComponent(videoFile)}`,
-        };
-      })
-      .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  } catch (error) {
-    console.error('Error reading recordings:', error);
-    return [];
-  }
+  // Mock data for recordings
+  return [
+    {
+      id: "drone_detection_2023-05-15_12-30-45.mp4",
+      filename: "drone_detection_2023-05-15_12-30-45.mp4",
+      timestamp: "2023-05-15T12:30:45",
+      metadata: {
+        timestamp: "2023-05-15T12:30:45",
+        droneType: "Quadcopter",
+        confidence: 0.92,
+        location: "North Perimeter",
+        threatLevel: "Medium",
+        droneCount: 1,
+        coordinates: [[120, 340]]
+      },
+      url: "/api/recordings/video/drone_detection_2023-05-15_12-30-45.mp4"
+    },
+    {
+      id: "drone_detection_2023-05-14_08-15-22.mp4",
+      filename: "drone_detection_2023-05-14_08-15-22.mp4",
+      timestamp: "2023-05-14T08:15:22",
+      metadata: {
+        timestamp: "2023-05-14T08:15:22",
+        droneType: "Hexacopter",
+        confidence: 0.88,
+        location: "East Entrance",
+        threatLevel: "High",
+        droneCount: 2,
+        coordinates: [[220, 180], [350, 210]]
+      },
+      url: "/api/recordings/video/drone_detection_2023-05-14_08-15-22.mp4"
+    },
+    {
+      id: "drone_detection_2023-05-13_19-45-10.mp4",
+      filename: "drone_detection_2023-05-13_19-45-10.mp4",
+      timestamp: "2023-05-13T19:45:10",
+      metadata: {
+        timestamp: "2023-05-13T19:45:10",
+        droneType: "Fixed Wing",
+        confidence: 0.75,
+        location: "South Perimeter",
+        threatLevel: "Low",
+        droneCount: 1,
+        coordinates: [[450, 280]]
+      },
+      url: "/api/recordings/video/drone_detection_2023-05-13_19-45-10.mp4"
+    }
+  ];
 }
 
 export default function DashboardPage() {
@@ -120,7 +129,19 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-
+        
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold">Recorded Detections</h2>
+         <Link href="/cctv" passHref>
+            <Button
+              variant="outline"
+              size="sm"
+              className="bg-zinc-900/80 backdrop-blur-sm border-zinc-800 hover:bg-zinc-800 hover:border-zinc-700 transition-all duration-300"
+            >
+              View CCTV Footage
+            </Button>
+          </Link>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
           {recordings.map((recording) => (
             <Card key={recording.id} className="bg-zinc-900/80 backdrop-blur-sm border-zinc-800 overflow-hidden">
@@ -145,7 +166,13 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-2">
                     <Video className="h-4 w-4 text-zinc-400" />
                     <span className="text-sm text-zinc-400">
-                      {formatDistanceToNow(new Date(recording.timestamp.replace(/-/g, ':')), { addSuffix: true })}
+                      {(() => {
+                        try {
+                          return formatDistanceToNow(new Date(recording.timestamp), { addSuffix: true });
+                        } catch (error) {
+                          return "Unknown time";
+                        }
+                      })()}
                     </span>
                   </div>
                   {recording.metadata && recording.metadata.droneCount > 1 && (

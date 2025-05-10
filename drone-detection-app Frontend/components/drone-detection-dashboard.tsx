@@ -37,26 +37,66 @@ export default function DroneDetectionDashboard() {
   const socketRef = useRef<WebSocket | null>(null)
   const isMobile = useMobile()
 
-  // Function to fetch videos from API
+  // Function to fetch videos (mock data)
   const fetchVideos = async () => {
     try {
       setIsPolling(true)
-      const response = await fetch("/api/drone-detections")
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch videos: ${response.status}`)
-      }
-
-      const data = await response.json()
-      setVideos(data)
-      setIsLoading(false)
-      setError(null)
+      
+      // Simulate API delay
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // Mock data
+      const mockData: DroneDetection[] = [
+        {
+          id: "drone1",
+          url: "/videos/drone1.mp4",
+          thumbnail: "/images/drone-thumbnail1.jpg",
+          timestamp: "2023-06-15T14:30:00",
+          filename: "drone_detection_20230615_143000.mp4",
+          detectionInfo: {
+            droneType: "Quadcopter",
+            confidence: 0.92,
+            location: "North Perimeter",
+            threatLevel: "Medium"
+          }
+        },
+        {
+          id: "drone2",
+          url: "/videos/drone2.mp4",
+          thumbnail: "/images/drone-thumbnail2.jpg",
+          timestamp: "2023-06-14T09:15:00",
+          filename: "drone_detection_20230614_091500.mp4",
+          detectionInfo: {
+            droneType: "Hexacopter",
+            confidence: 0.88,
+            location: "East Entrance",
+            threatLevel: "High"
+          }
+        },
+        {
+          id: "drone3",
+          url: "/videos/drone3.mp4",
+          thumbnail: "/images/drone-thumbnail3.jpg",
+          timestamp: "2023-06-13T18:45:00",
+          filename: "drone_detection_20230613_184500.mp4",
+          detectionInfo: {
+            droneType: "Fixed Wing",
+            confidence: 0.75,
+            location: "South Perimeter",
+            threatLevel: "Low"
+          }
+        }
+      ];
+      
+      setVideos(mockData);
+      setIsLoading(false);
+      setError(null);
     } catch (err) {
-      console.error("Error fetching videos:", err)
-      setError("Failed to fetch detection videos. Please try again.")
-      setIsLoading(false)
+      console.error("Error fetching videos:", err);
+      setError("Failed to fetch detection videos. Please try again.");
+      setIsLoading(false);
     } finally {
-      setIsPolling(false)
+      setIsPolling(false);
     }
   }
 
