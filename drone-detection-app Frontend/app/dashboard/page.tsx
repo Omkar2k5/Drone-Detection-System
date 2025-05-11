@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense } from "react"
+import { Suspense, useEffect, useState } from "react"
 import DroneDetectionDashboard from "@/components/drone-detection-dashboard"
 import { Loader2, ChevronLeft, Shield, Video, AlertTriangle } from "lucide-react"
 import Link from "next/link"
@@ -22,63 +22,103 @@ interface Recording {
   id: string;
   filename: string;
   timestamp: string;
+  size: number;
   metadata: RecordingMetadata | null;
   url: string;
 }
 
-function getRecordings(): Recording[] {
-  // Mock data for recordings
-  return [
-    {
-      id: "drone_detection_2023-05-15_12-30-45.mp4",
-      filename: "drone_detection_2023-05-15_12-30-45.mp4",
-      timestamp: "2023-05-15T12:30:45",
-      metadata: {
-        timestamp: "2023-05-15T12:30:45",
-        droneType: "Quadcopter",
-        confidence: 0.92,
-        location: "North Perimeter",
-        threatLevel: "Medium",
-        droneCount: 1,
-        coordinates: [[120, 340]]
-      },
-      url: "/api/recordings/video/drone_detection_2023-05-15_12-30-45.mp4"
-    },
-    {
-      id: "drone_detection_2023-05-14_08-15-22.mp4",
-      filename: "drone_detection_2023-05-14_08-15-22.mp4",
-      timestamp: "2023-05-14T08:15:22",
-      metadata: {
-        timestamp: "2023-05-14T08:15:22",
-        droneType: "Hexacopter",
-        confidence: 0.88,
-        location: "East Entrance",
-        threatLevel: "High",
-        droneCount: 2,
-        coordinates: [[220, 180], [350, 210]]
-      },
-      url: "/api/recordings/video/drone_detection_2023-05-14_08-15-22.mp4"
-    },
-    {
-      id: "drone_detection_2023-05-13_19-45-10.mp4",
-      filename: "drone_detection_2023-05-13_19-45-10.mp4",
-      timestamp: "2023-05-13T19:45:10",
-      metadata: {
-        timestamp: "2023-05-13T19:45:10",
-        droneType: "Fixed Wing",
-        confidence: 0.75,
-        location: "South Perimeter",
-        threatLevel: "Low",
-        droneCount: 1,
-        coordinates: [[450, 280]]
-      },
-      url: "/api/recordings/video/drone_detection_2023-05-13_19-45-10.mp4"
-    }
-  ];
-}
-
 export default function DashboardPage() {
-  const recordings = getRecordings();
+  const [recordings, setRecordings] = useState<Recording[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchRecordings() {
+      try {
+        console.log('Fetching recordings...');
+        const response = await fetch('/api/recordings');
+        if (!response.ok) {
+          throw new Error(`Failed to fetch recordings: ${response.statusText}`);
+        }
+        const data = await response.json();
+        console.log('Received recordings:', data);
+        setRecordings(data);
+      } catch (err) {
+        console.error('Error fetching recordings:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load recordings');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchRecordings();
+  }, []);
+
+  const handleVideoError = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
+    const video = e.currentTarget;
+    const error = video.error;
+    const recording = recordings.find(r => r.url === video.src);
+    
+    console.error('Video loading error:', {
+      src: video.src,
+      recording: recording ? {
+        id: recording.id,
+        filename: recording.filename,
+        size: recording.size,
+        metadata: recording.metadata
+      } : null,
+      error: error ? {
+        code: error.code,
+        message: error.message
+      } : null,
+      networkState: video.networkState,
+      readyState: video.readyState,
+      currentSrc: video.currentSrc,
+      duration: video.duration,
+      videoWidth: video.videoWidth,
+      videoHeight: video.videoHeight,
+      paused: video.paused,
+      ended: video.ended,
+      seeking: video.seeking,
+      currentTime: video.currentTime
+    });
+
+    // Try to recover by reloading the video
+    if (video.networkState === 3) { // NETWORK_NO_SOURCE
+      video.load();
+    }
+  };
+
+  const handleSourceError = (e: React.SyntheticEvent<HTMLSourceElement, Event>) => {
+    const source = e.currentTarget;
+    const parentVideo = source.parentElement as HTMLVideoElement;
+    const error = parentVideo?.error;
+    const recording = recordings.find(r => r.url === source.src);
+    
+    console.error('Source error:', {
+      src: source.src,
+      type: source.type,
+      recording: recording ? {
+        id: recording.id,
+        filename: recording.filename,
+        size: recording.size,
+        metadata: recording.metadata
+      } : null,
+      parent: source.parentElement?.tagName,
+      parentSrc: parentVideo?.src,
+      parentError: error ? {
+        code: error.code,
+        message: error.message
+      } : null,
+      networkState: parentVideo?.networkState,
+      readyState: parentVideo?.readyState
+    });
+
+    // Try to recover by reloading the video
+    if (parentVideo && parentVideo.networkState === 3) {
+      parentVideo.load();
+    }
+  };
 
   return (
     <main className="min-h-screen bg-zinc-950 text-white relative overflow-hidden">
@@ -132,7 +172,7 @@ export default function DashboardPage() {
         
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold">Recorded Detections</h2>
-         <Link href="/cctv" passHref>
+          <Link href="/cctv" passHref>
             <Button
               variant="outline"
               size="sm"
@@ -142,69 +182,66 @@ export default function DashboardPage() {
             </Button>
           </Link>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-          {recordings.map((recording) => (
-            <Card key={recording.id} className="bg-zinc-900/80 backdrop-blur-sm border-zinc-800 overflow-hidden">
-              <div className="aspect-video relative bg-zinc-950">
-                <video
-                  src={recording.url}
-                  className="w-full h-full object-cover"
-                  controls
-                  preload="metadata"
-                />
-                <div className="absolute top-2 right-2">
-                  {recording.metadata?.threatLevel === 'High' && (
-                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-red-500/20 text-red-400 text-xs">
-                      <AlertTriangle className="h-3 w-3" />
-                      High Threat
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <Video className="h-4 w-4 text-zinc-400" />
-                    <span className="text-sm text-zinc-400">
-                      {(() => {
-                        try {
-                          return formatDistanceToNow(new Date(recording.timestamp), { addSuffix: true });
-                        } catch (error) {
-                          return "Unknown time";
-                        }
-                      })()}
-                    </span>
-                  </div>
-                  {recording.metadata && recording.metadata.droneCount > 1 && (
-                    <span className="text-sm text-zinc-400">
-                      {recording.metadata.droneCount} drones detected
-                    </span>
-                  )}
-                </div>
-                {recording.metadata && (
-                  <div className="space-y-1 text-sm text-zinc-400">
-                    <p>Confidence: {(recording.metadata.confidence * 100).toFixed(1)}%</p>
-                    <p>Type: {recording.metadata.droneType}</p>
-                  </div>
-                )}
-              </div>
-            </Card>
-          ))}
-        </div>
 
-        <Suspense
-          fallback={
-            <div className="flex flex-col items-center justify-center h-64">
-              <div className="relative">
-                <div className="absolute -inset-4 rounded-full bg-red-600/20 opacity-50 blur-lg animate-pulse"></div>
-                <Loader2 className="h-12 w-12 animate-spin text-red-500 relative" />
-              </div>
-              <p className="mt-4 text-zinc-400">Loading detection data...</p>
-            </div>
-          }
-        >
-          <DroneDetectionDashboard />
-        </Suspense>
+        {loading ? (
+          <div className="flex items-center justify-center h-64">
+            <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
+          </div>
+        ) : error ? (
+          <div className="text-red-400 text-center py-8">{error}</div>
+        ) : recordings.length === 0 ? (
+          <div className="text-zinc-400 text-center py-8">No recordings found</div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+            {recordings.map((recording) => (
+              <Card key={recording.id} className="bg-zinc-900/80 backdrop-blur-sm border-zinc-800 overflow-hidden">
+                <div className="aspect-video relative bg-zinc-950">
+                  <video
+                    key={recording.id}
+                    className="w-full h-full object-cover"
+                    controls
+                    preload="metadata"
+                    onError={handleVideoError}
+                    playsInline
+                    src={recording.url}
+                  >
+                    Your browser does not support the video tag.
+                  </video>
+                  <div className="absolute top-2 right-2">
+                    {recording.metadata?.threatLevel === 'High' && (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-red-500/20 text-red-400 text-xs">
+                        <AlertTriangle className="h-3 w-3" />
+                        High Threat
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Video className="h-4 w-4 text-zinc-400" />
+                      <span className="text-sm text-zinc-400">
+                        {(() => {
+                          try {
+                            return formatDistanceToNow(new Date(recording.timestamp), { addSuffix: true });
+                          } catch (error) {
+                            return "Unknown time";
+                          }
+                        })()}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-sm text-zinc-400">
+                    {recording.filename}
+                  </div>
+                  <div className="text-xs text-zinc-500 mt-1">
+                    Size: {(recording.size / (1024 * 1024)).toFixed(2)} MB
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
       </div>
     </main>
   )

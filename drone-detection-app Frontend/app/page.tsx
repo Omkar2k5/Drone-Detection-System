@@ -144,23 +144,7 @@ export default function HomePage() {
               </motion.div>
             </div>
               
-              <motion.div
-                variants={itemVariants}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="relative inline-block group"
-              >
-                <span className="absolute -inset-1 rounded-lg bg-gradient-to-r from-red-600 to-amber-600 opacity-0 group-hover:opacity-70 blur transition-all duration-300"></span>
-                <Link href="/cctv" passHref>
-                  <Button
-                    size="lg"
-                    className="relative bg-gradient-to-r from-zinc-700 to-zinc-800 hover:from-zinc-600 hover:to-zinc-700 text-white border-0 shadow-lg shadow-zinc-900/20"
-                  >
-                    CCTV Footage
-                    <Video className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
-                  </Button>
-                </Link>
-              </motion.div>
+             
             </div>
           </motion.div>
         </div>

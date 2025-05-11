@@ -4,49 +4,76 @@ import path from 'path';
 
 export async function GET() {
   try {
-    // Path to the logs directory using absolute path
-    const logsDir = path.resolve(process.cwd(), '..', '..', 'logs');
-    console.log('Logs directory:', logsDir); // Debug log
+    // Get the absolute path to the logs directory in public folder
+    const logsDir = path.join(process.cwd(), 'public', 'logs');
     
-    // Read all files in the logs directory
+    // Check if directory exists
+    if (!fs.existsSync(logsDir)) {
+      console.error('Logs directory not found:', logsDir);
+      return NextResponse.json({ error: 'Logs directory not found' }, { status: 404 });
+    }
+
+    // Read all files in the directory
     const files = fs.readdirSync(logsDir);
-    console.log('Files found:', files); // Debug log
-    
-    // Filter for video files and their metadata
+    console.log('Found files:', files);
+
+    // Filter and process MP4 files
     const recordings = files
-      .filter(file => file.endsWith('.mp4'))
-      .map(videoFile => {
-        const metaFile = videoFile.replace('.mp4', '.meta');
-        const metaPath = path.join(logsDir, metaFile);
+      .filter(file => file.toLowerCase().endsWith('.mp4'))
+      .map(file => {
+        const filePath = path.join(logsDir, file);
+        const stats = fs.statSync(filePath);
         
-        let metadata = null;
-        if (fs.existsSync(metaPath)) {
-          try {
-            metadata = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-          } catch (error) {
-            console.error(`Error reading metadata for ${metaFile}:`, error);
-          }
-        }
-
         // Extract timestamp from filename
-        const timestamp = videoFile.split('_')[2].replace('.mp4', '');
+        const timestamp = file.split('_')[2]?.split('.')[0] || new Date().toISOString();
         
-        return {
-          id: videoFile,
-          filename: videoFile,
-          timestamp: timestamp,
-          metadata: metadata,
-          url: `/api/recordings/video/${encodeURIComponent(videoFile)}`,
-        };
-      })
-      .sort((a, b) => b.timestamp.localeCompare(a.timestamp)); // Sort by timestamp, newest first
+        // Create relative URL to the video file - use the dedicated video API instead of static path
+        const url = `/api/video/${encodeURIComponent(file)}`;
 
-    return NextResponse.json({ recordings });
+        // Extract metadata from filename
+        const filenameParts = file.split('_');
+        const droneType = filenameParts[3]?.split('.')[0] || 'Unknown';
+        const threatLevel = file.includes('High') ? 'High' : file.includes('Medium') ? 'Medium' : 'Low';
+
+        console.log('Processing recording:', {
+          file,
+          size: stats.size,
+          url,
+          exists: fs.existsSync(filePath),
+          isFile: stats.isFile(),
+          permissions: stats.mode,
+          lastModified: stats.mtime
+        });
+        return {
+          id: file,
+          filename: file,
+          timestamp,
+          size: stats.size,
+          metadata: {
+            timestamp,
+            droneType,
+            confidence: 0.85,
+            location: "Perimeter",
+            threatLevel,
+            droneCount: 1,
+            coordinates: [[0, 0]],
+            fileInfo: {
+              size: stats.size,
+              lastModified: stats.mtime,
+              permissions: stats.mode
+            }
+          },
+          url
+        };
+      });
+
+    console.log('Returning recordings:', recordings.length);
+    return NextResponse.json(recordings);
   } catch (error) {
-    console.error('Error fetching recordings:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch recordings' },
-      { status: 500 }
-    );
+    console.error('Error in recordings API:', error);
+    return NextResponse.json({ 
+      error: 'Failed to fetch recordings',
+      details: error instanceof Error ? error.message : String(error)
+    }, { status: 500 });
   }
 } 
