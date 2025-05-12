@@ -17,12 +17,14 @@ import cv2
 import torch
 import random
 
+# Setup base directories
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
+# Import YOLOv5 dependencies
 from models.common import DetectMultiBackend
 from utils.dataloaders import IMG_FORMATS, VID_FORMATS, LoadImages, LoadStreams
 from utils.general import (
@@ -43,16 +45,17 @@ from utils.plots import Annotator, colors
 from utils.torch_utils import select_device, smart_inference_mode
 
 # Constants
-CONF_THRESHOLD = 0.5  # 50% confidence threshold for detection
-BUFFER_SECONDS = 15  # Number of seconds to buffer before detection
-POST_DETECTION_SECONDS = 7  # Number of seconds to record after detection
-RECORDING_EXTENSION = 7  # Additional seconds to record if drone remains in frame
-EXTENSION_WINDOW = 2  # Number of seconds before timeout to check for extension
-SNAPSHOT_PROBABILITY = 0.75  # 75% chance to take a snapshot
+CONF_THRESHOLD = float(os.getenv('DRONE_CONF_THRESHOLD', '0.5'))  # 50% confidence threshold
+BUFFER_SECONDS = int(os.getenv('DRONE_BUFFER_SECONDS', '15'))  # Buffer duration
+POST_DETECTION_SECONDS = int(os.getenv('DRONE_POST_DETECTION_SECONDS', '7'))  # Post-detection recording
+RECORDING_EXTENSION = int(os.getenv('DRONE_RECORDING_EXTENSION', '7'))  # Additional recording time
+EXTENSION_WINDOW = int(os.getenv('DRONE_EXTENSION_WINDOW', '2'))  # Extension check window
+SNAPSHOT_PROBABILITY = float(os.getenv('DRONE_SNAPSHOT_PROBABILITY', '0.75'))  # Snapshot probability
 
-# Directory paths
-LOGS_DIR = Path("C:/Projects/Drone Detection System/logs")  # Directory for storing detection videos
-SNAPSHOT_DIR = Path("C:/Projects/Drone Detection System/drone-detection-app Frontend/public/Image logs")  # Directory for storing snapshots
+# Directory paths - Using relative paths from project root
+PROJECT_ROOT = Path(os.getenv('DRONE_PROJECT_ROOT', str(FILE.parent)))
+LOGS_DIR = PROJECT_ROOT / 'logs'  # Directory for storing detection videos
+SNAPSHOT_DIR = PROJECT_ROOT / 'drone-detection-app Frontend/public/Image logs'  # Directory for storing snapshots
 
 # Global variables for recording state
 is_recording = False
@@ -66,7 +69,7 @@ max_drones_spotted = 0  # New variable to track maximum drones
 def save_snapshot(frame, drone_type, confidence, detection_coords=None, frame_info=None):
     """Save a snapshot of the drone detection with metadata."""
     try:
-        # Create directory if it doesn't exist
+        # Create directories if they don't exist
         SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
         
         # Generate filename with timestamp and detection info
@@ -76,9 +79,17 @@ def save_snapshot(frame, drone_type, confidence, detection_coords=None, frame_in
         filename = f"drone_snapshot_{timestamp}_{drone_type}_{threat_level}_{confidence:.2f}.jpg"
         filepath = SNAPSHOT_DIR / filename
         
+        # Ensure the frame is in the correct format
+        if len(frame.shape) == 2:  # If grayscale
+            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+        
         # Save the image
-        cv2.imwrite(str(filepath), frame)
-        LOGGER.info(f"Saved snapshot to {filepath}")
+        success = cv2.imwrite(str(filepath), frame)
+        if not success:
+            LOGGER.error(f"Failed to save image to {filepath}")
+            return
+            
+        LOGGER.info(f"Successfully saved snapshot to {filepath}")
         
         # Create metadata
         metadata = {
@@ -111,12 +122,15 @@ def save_snapshot(frame, drone_type, confidence, detection_coords=None, frame_in
         }
         
         # Save metadata with the same name as the image but with .json extension
-        meta_filename = str(filepath).replace('.jpg', '.json')
-        with open(meta_filename, 'w') as f:
+        meta_filepath = filepath.with_suffix('.json')
+        with open(meta_filepath, 'w') as f:
             json.dump(metadata, f, indent=2)
+        LOGGER.info(f"Successfully saved metadata to {meta_filepath}")
             
     except Exception as e:
-        LOGGER.error(f"Error saving snapshot: {e}")
+        LOGGER.error(f"Error saving snapshot: {str(e)}")
+        import traceback
+        LOGGER.error(traceback.format_exc())
 
 def should_extend_recording(frames_to_record, fps):
     """Check if recording should be extended based on recent detections."""
@@ -155,9 +169,14 @@ def run(
     source = str(source)
     webcam = source.isnumeric()
 
-    # Create logs directory
-    LOGS_DIR.mkdir(exist_ok=True)
-    SNAPSHOT_DIR.mkdir(exist_ok=True)
+    # Create directories
+    try:
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+        LOGGER.info(f"Created/verified directories: {LOGS_DIR}, {SNAPSHOT_DIR}")
+    except Exception as e:
+        LOGGER.error(f"Error creating directories: {str(e)}")
+        return
 
     # Load model
     device = select_device(device)
