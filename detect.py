@@ -9,11 +9,9 @@ import platform
 import sys
 from pathlib import Path
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 import time
 from collections import deque
-import signal
-import atexit
 import numpy as np
 import cv2
 import torch
@@ -26,7 +24,7 @@ if str(ROOT) not in sys.path:
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 from models.common import DetectMultiBackend
-from utils.dataloaders import IMG_FORMATS, VID_FORMATS, LoadImages, LoadScreenshots, LoadStreams
+from utils.dataloaders import IMG_FORMATS, VID_FORMATS, LoadImages, LoadStreams
 from utils.general import (
     LOGGER,
     Profile,
@@ -40,10 +38,8 @@ from utils.general import (
     non_max_suppression,
     print_args,
     scale_boxes,
-    strip_optimizer,
-    xyxy2xywh,
 )
-from utils.plots import Annotator, colors, save_one_box
+from utils.plots import Annotator, colors
 from utils.torch_utils import select_device, smart_inference_mode
 
 # Constants
