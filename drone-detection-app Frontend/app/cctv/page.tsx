@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { ChevronLeft, Maximize2, Minimize2, Video, Shield, AlertCircle } from "lucide-react"
-import Cam1 from "@/components/cam1"
+import DetectionFeed from "../components/DetectionFeed"
 
 export default function CCTVPage() {
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -102,60 +102,49 @@ export default function CCTVPage() {
             </CardHeader>
             
             <CardContent className="p-4 pt-4">
-              <Cam1 />
+              <DetectionFeed camId="1" camName="Main Entrance" />
             </CardContent>
           </Card>
 
-          {/* Camera 2 (Placeholder) */}
+          {/* Camera 2 */}
           <Card className="bg-zinc-900/80 backdrop-blur-sm border-zinc-800 overflow-hidden">
             <CardHeader className="p-4 pb-0 flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-lg font-medium">Cam 2 - Perimeter East</CardTitle>
               <Badge
                 variant="outline"
-                className="bg-amber-950/50 backdrop-blur-sm text-amber-400 border-amber-800 flex items-center gap-1.5"
+                className="bg-green-950/50 backdrop-blur-sm text-green-400 border-green-800 flex items-center gap-1.5"
               >
                 <div className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
                 </div>
-                Connecting...
+                Live
               </Badge>
             </CardHeader>
             
             <CardContent className="p-4 pt-4">
-              <div className="aspect-video bg-zinc-950 rounded-md overflow-hidden flex items-center justify-center">
-                <div className="text-center p-4">
-                  <Video className="h-10 w-10 text-zinc-700 mx-auto mb-2" />
-                  <p className="text-zinc-500">Camera feed unavailable</p>
-                </div>
-              </div>
+              <DetectionFeed camId="2" camName="Perimeter East" />
             </CardContent>
           </Card>
 
-          {/* Camera 3 (Placeholder) */}
+          {/* Camera 3 */}
           <Card className="bg-zinc-900/80 backdrop-blur-sm border-zinc-800 overflow-hidden">
             <CardHeader className="p-4 pb-0 flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-lg font-medium">Cam 3 - Perimeter West</CardTitle>
               <Badge
                 variant="outline"
-                className="bg-red-950/50 backdrop-blur-sm text-red-400 border-red-800 flex items-center gap-1.5"
+                className="bg-green-950/50 backdrop-blur-sm text-green-400 border-green-800 flex items-center gap-1.5"
               >
                 <div className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
                 </div>
-                Offline
+                Live
               </Badge>
             </CardHeader>
             
             <CardContent className="p-4 pt-4">
-              <div className="aspect-video bg-zinc-950 rounded-md overflow-hidden flex items-center justify-center">
-                <div className="text-center p-4">
-                  <AlertCircle className="h-10 w-10 text-red-700 mx-auto mb-2" />
-                  <p className="text-red-500">Connection failed</p>
-                  <p className="text-zinc-500 text-sm mt-1">Check camera power and network</p>
-                </div>
-              </div>
+              <DetectionFeed camId="3" camName="Perimeter West" />
             </CardContent>
           </Card>
         </div>
