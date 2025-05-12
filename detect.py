@@ -48,13 +48,15 @@ from utils.torch_utils import select_device, smart_inference_mode
 
 # Constants
 CONF_THRESHOLD = 0.5  # 50% confidence threshold for detection
-LOGS_DIR = Path("logs")  # Directory for storing detection videos and metadata
 BUFFER_SECONDS = 15  # Number of seconds to buffer before detection
 POST_DETECTION_SECONDS = 7  # Number of seconds to record after detection
 RECORDING_EXTENSION = 7  # Additional seconds to record if drone remains in frame
 EXTENSION_WINDOW = 2  # Number of seconds before timeout to check for extension
 SNAPSHOT_PROBABILITY = 0.75  # 75% chance to take a snapshot
-SNAPSHOT_DIR = Path("C:/Projects/Drone Detection System/drone-detection-app Frontend/public/Image logs")
+
+# Directory paths
+LOGS_DIR = Path("C:/Projects/Drone Detection System/logs")  # Directory for storing detection videos
+SNAPSHOT_DIR = Path("C:/Projects/Drone Detection System/drone-detection-app Frontend/public/Image logs")  # Directory for storing snapshots
 
 # Global variables for recording state
 is_recording = False
@@ -112,7 +114,7 @@ def save_snapshot(frame, drone_type, confidence, detection_coords=None, frame_in
             }
         }
         
-        # Save metadata
+        # Save metadata with the same name as the image but with .json extension
         meta_filename = str(filepath).replace('.jpg', '.json')
         with open(meta_filename, 'w') as f:
             json.dump(metadata, f, indent=2)
@@ -132,6 +134,7 @@ def should_extend_recording(frames_to_record, fps):
     
     return seconds_since_last_detection <= EXTENSION_WINDOW and remaining_seconds <= EXTENSION_WINDOW
 
+@smart_inference_mode()
 def run(
     weights=ROOT / "best.pt",  # model path
     source=0,  # webcam
